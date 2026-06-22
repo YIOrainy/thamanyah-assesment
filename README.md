@@ -44,3 +44,53 @@ Each service serves its OpenAPI spec and live Swagger UI:
 
 - `GET /openapi.yaml` — the spec (`api/openapi.yaml`)
 - `GET /docs` — Swagger UI
+
+## Database schema
+
+```mermaid
+erDiagram
+    SHOWS {
+        uuid        id PK
+        text        title
+        text        slug UK
+        text        format "podcast | documentary | sports"
+        text        language
+        text        status "draft | published | archived"
+        uuid        created_by
+        timestamptz created_at
+    }
+    EPISODES {
+        uuid        id PK
+        uuid        show_id FK
+        text        title
+        text        slug
+        int         episode_number
+        text        content_type "audio | video"
+        text        status
+        timestamptz published_at
+        tsvector    search_tsv "generated + GIN index (FTS)"
+    }
+    CMS_USERS {
+        uuid        id PK
+        text        email UK
+        text        password_hash
+        text        role "admin | editor | viewer"
+    }
+    EXTERNAL_REFS {
+        uuid        id PK
+        text        source "rss | csv | youtube"
+        text        owner_type "show | episode"
+        uuid        owner_id
+        text        external_id
+        timestamptz imported_at
+    }
+
+    SHOWS    ||--o{ EPISODES      : has
+    SHOWS    ||--o{ EXTERNAL_REFS : "provenance (owner_type=show)"
+    EPISODES ||--o{ EXTERNAL_REFS : "provenance (owner_type=episode)"
+```
+
+Key constraints (in migrations, not visible above):
+- `episodes`: `UNIQUE(show_id, slug)` and `UNIQUE(show_id, episode_number)`.
+- `external_refs`: `UNIQUE(source, owner_type, external_id)` — the **idempotency key** for imports. The `owner` is polymorphic, so the links to `shows`/`episodes` are logical (no DB foreign key).
+- Search is Postgres FTS via the generated `episodes.search_tsv` (GIN), Arabic-normalized.
