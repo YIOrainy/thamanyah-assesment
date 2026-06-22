@@ -1,0 +1,372 @@
+openapi: 3.0.3
+info:
+  title: Thmanyah CMS + Discovery API
+  version: "1.0.0"
+  description: |
+    Thmanyah is a podcast platform for Arabic content. This API is used by the CMS (write side) and Discovery (read side) services.
+
+servers:
+- url: http://localhost:8080
+  description: CMS (write side)
+- url: http://localhost:8081
+  description: Discovery (read side)
+
+tags:
+- name: Auth
+- name: CMS — Shows
+- name: CMS — Episodes
+- name: CMS — Imports
+- name: Discovery
+
+paths:
+  /api/v1/auth/login:
+    post:
+      tags: [ Auth ]
+      summary: Log in and obtain a JWT
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Token issued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginResponse" }
+        "401": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/shows:
+    post:
+      tags: [ CMS — Shows ]
+      summary: Create a show (perm shows:write)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateShowRequest" }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Show" } } } }
+        "400": { $ref: "#/components/responses/Problem" }
+        "401": { $ref: "#/components/responses/Problem" }
+        "403": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+    get:
+      tags: [ CMS — Shows ]
+      summary: List shows, offset-paginated (perm shows:read)
+      parameters:
+      - { name: format, in: query, schema: { $ref: "#/components/schemas/Format" } }
+      - { name: status, in: query, schema: { $ref: "#/components/schemas/Status" } }
+      - { name: language, in: query, schema: { type: string, example: ar } }
+      - { name: page, in: query, schema: { type: integer, default: 1, minimum: 1 } }
+      - { name: page_size, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/PagedShows" } } } }
+
+  /api/v1/shows/{showID}:
+    parameters:
+    - { name: showID, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [ CMS — Shows ]
+      summary: Get a show by id (perm shows:read)
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Show" } } } }
+        "404": { $ref: "#/components/responses/Problem" }
+    patch:
+      tags: [ CMS — Shows ]
+      summary: Update a show (perm shows:write)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateShowRequest" }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Show" } } } }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/shows/{showID}/publish:
+    parameters:
+    - { name: showID, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [ CMS — Shows ]
+      summary: Publish a show (perm shows:publish)
+      responses:
+        "200": { description: Published, content: { application/json: { schema: { $ref: "#/components/schemas/Show" } } } }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/shows/{showID}/episodes:
+    parameters:
+    - { name: showID, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [ CMS — Episodes ]
+      summary: Create an episode under a show (perm episodes:write)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateEpisodeRequest" }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Episode" } } } }
+        "404": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+    get:
+      tags: [ CMS — Episodes ]
+      summary: List a show's episodes, offset-paginated (perm episodes:read)
+      parameters:
+      - { name: page, in: query, schema: { type: integer, default: 1 } }
+      - { name: page_size, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/PagedEpisodes" } } } }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/episodes/{episodeID}:
+    parameters:
+    - { name: episodeID, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [ CMS — Episodes ]
+      summary: Get an episode by id (perm episodes:read)
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Episode" } } } }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/episodes/{episodeID}/publish:
+    parameters:
+    - { name: episodeID, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [ CMS — Episodes ]
+      summary: Publish an episode (perm episodes:publish)
+      responses:
+        "200": { description: Published, content: { application/json: { schema: { $ref: "#/components/schemas/Episode" } } } }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/imports:
+    post:
+      tags: [ CMS — Imports ]
+      summary: Run a multi-source import (perm imports:run)
+      description: Imports a show + episodes from an external source. Idempotent (re-run upserts).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ImportRequest" }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/ImportResult" } } } }
+        "400": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/search:
+    get:
+      tags: [ Discovery ]
+      summary: Full-text search published episodes (keyset-paginated)
+      security: []
+      parameters:
+      - { name: q, in: query, schema: { type: string }, example: قهوة }
+      - { name: language, in: query, schema: { type: string, example: ar } }
+      - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+      - { name: cursor, in: query, schema: { type: string }, description: next_cursor from the previous page }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/CursorEpisodes" } } } }
+        "400": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/shows/{slug}:
+    get:
+      tags: [ Discovery ]
+      summary: Get a published show by slug
+      security: []
+      parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Show" } } } }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/shows/{slug}/episodes:
+    get:
+      tags: [ Discovery ]
+      summary: List a published show's episodes
+      security: []
+      parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/CursorEpisodes" } } } }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/episodes/{slug}:
+    get:
+      tags: [ Discovery ]
+      summary: Get a published episode by slug
+      security: []
+      parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Episode" } } } }
+        "404": { $ref: "#/components/responses/Problem" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    Problem:
+      description: RFC 7807 error
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+
+  schemas:
+    Format: { type: string, enum: [ podcast, documentary, sports ] }
+    Status: { type: string, enum: [ draft, published, archived ] }
+    ContentType: { type: string, enum: [ audio, video ] }
+    CreditRole: { type: string, enum: [ host, guest, director, producer ] }
+
+    Problem:
+      type: object
+      properties:
+        title: { type: string, example: Not Found }
+        status: { type: integer, example: 404 }
+        detail: { type: string, example: not found }
+
+    LoginRequest:
+      type: object
+      required: [ email, password ]
+      properties:
+        email: { type: string, format: email, example: admin@thmanyah.local }
+        password: { type: string, format: password, example: admin12345 }
+    LoginResponse:
+      type: object
+      properties:
+        access_token: { type: string }
+
+    Person:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        bio: { type: string }
+        image_url: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Credit:
+      type: object
+      properties:
+        person: { $ref: "#/components/schemas/Person" }
+        role: { $ref: "#/components/schemas/CreditRole" }
+        sort_order: { type: integer }
+    Topic:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    Show:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string, example: فنجان }
+        slug: { type: string, example: finjan }
+        description: { type: string }
+        format: { $ref: "#/components/schemas/Format" }
+        language: { type: string, example: ar }
+        status: { $ref: "#/components/schemas/Status" }
+        people: { type: array, items: { $ref: "#/components/schemas/Credit" } }
+        topics: { type: array, items: { $ref: "#/components/schemas/Topic" } }
+        created_by: { type: string, format: uuid }
+        updated_by: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Episode:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        show_id: { type: string, format: uuid }
+        title: { type: string }
+        slug: { type: string }
+        description: { type: string }
+        episode_number: { type: integer }
+        content_type: { $ref: "#/components/schemas/ContentType" }
+        language: { type: string }
+        duration_seconds: { type: integer }
+        status: { $ref: "#/components/schemas/Status" }
+        published_at: { type: string, format: date-time, nullable: true }
+        people: { type: array, items: { $ref: "#/components/schemas/Credit" } }
+        topics: { type: array, items: { $ref: "#/components/schemas/Topic" } }
+        created_by: { type: string, format: uuid }
+        updated_by: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    CreateShowRequest:
+      type: object
+      required: [ title, slug, format, language ]
+      properties:
+        title: { type: string }
+        slug: { type: string }
+        description: { type: string }
+        format: { $ref: "#/components/schemas/Format" }
+        language: { type: string }
+    UpdateShowRequest:
+      type: object
+      properties:
+        title: { type: string }
+        description: { type: string }
+        format: { $ref: "#/components/schemas/Format" }
+        language: { type: string }
+    CreateEpisodeRequest:
+      type: object
+      required: [ title, slug, content_type, language ]
+      properties:
+        title: { type: string }
+        slug: { type: string }
+        description: { type: string }
+        episode_number: { type: integer }
+        content_type: { $ref: "#/components/schemas/ContentType" }
+        language: { type: string }
+        duration_seconds: { type: integer }
+
+    ImportRequest:
+      type: object
+      required: [ source, query ]
+      properties:
+        source: { type: string, enum: [ rss, csv, youtube ], example: rss }
+        query: { type: string, example: "https://feeds.npr.org/510289/podcast.xml" }
+    ImportResult:
+      type: object
+      properties:
+        shows_created: { type: integer }
+        shows_updated: { type: integer }
+        episodes_created: { type: integer }
+        episodes_updated: { type: integer }
+
+    PagedShows:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/Show" } }
+        page: { type: integer }
+        page_size: { type: integer }
+        total: { type: integer }
+    PagedEpisodes:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/Episode" } }
+        page: { type: integer }
+        page_size: { type: integer }
+        total: { type: integer }
+    CursorEpisodes:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/Episode" } }
+        next_cursor: { type: string, description: pass as ?cursor= for the next page; empty when no more }
+    CursorShows:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/Show" } }
+        next_cursor: { type: string }
+
+security:
+- bearerAuth: []

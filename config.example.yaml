@@ -1,0 +1,46 @@
+server:
+  host: "0.0.0.0"
+  cms_port: "8080"
+  discovery_port: "8081"
+
+store:
+  postgres:
+    enabled: true
+    dsn: "postgres://thmanyah:thmanyah@localhost:5432/thmanyah?sslmode=disable"
+    max_open_conns: 25
+    max_idle_conns: 25
+  memory:
+    enabled: false
+    actors: 4 # consider it as a shards or workers
+
+cache:
+  redis:
+    enabled: true
+    addr: "localhost:6379"
+    ttl: 60s
+
+auth:
+  jwt_secret: "change-me"
+  token_ttl: 1h
+  bootstrap_admin:
+    email: "admin@thmanyah.local"
+    password: "admin12345"
+
+ingestion:
+  rss:
+    enabled: true
+  csv:
+    enabled: true
+  youtube:
+    enabled: false # enabled since it needs a paid API key
+    api_key: "change-me"
+
+observability:
+  profiling:
+    enabled: false
+    endpoint: "http://localhost:4040"
+  metrics:
+    enabled: true
+    endpoint: "http://localhost:4318"
+
+log_level: "info"
