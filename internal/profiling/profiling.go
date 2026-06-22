@@ -37,5 +37,11 @@ func Start(cfg config.ProfilingConfig, appName string) func() {
 		return func() {}
 	}
 	slog.Info("profiling started", "endpoint", cfg.Endpoint, "app", appName)
-	return func() { _ = p.Stop() }
+	return func() {
+		if err := p.Stop(); err != nil {
+			slog.Error("stop profiling", "app", appName, "error", err)
+			return
+		}
+		slog.Info("profiling stopped", "app", appName)
+	}
 }

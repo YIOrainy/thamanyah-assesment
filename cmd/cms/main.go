@@ -30,6 +30,13 @@ func main() {
 		os.Exit(1)
 	}
 	logging.Init(cfg.LogLevel)
+	slog.Info("config loaded",
+		"service", "cms",
+		"path", *configPath,
+		"log_level", cfg.LogLevel,
+		"metrics_enabled", cfg.Observability.Metrics.Enabled,
+		"profiling_enabled", cfg.Observability.Profiling.Enabled,
+	)
 	stopProfiling := profiling.Start(cfg.Observability.Profiling, "thmanyah.cms")
 
 	repos, err := store.New(cfg.Store)
@@ -47,17 +54,19 @@ func main() {
 	router := cms.NewRouter(repos.Shows, repos.Episodes, repos.Users, jwt, importSvc)
 
 	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
-	srv := server.New(net.JoinHostPort(cfg.Server.Host, cfg.Server.CMSPort), router, server.Options{
+	addr := net.JoinHostPort(cfg.Server.Host, cfg.Server.CMSPort)
+	srv := server.New(addr, router, server.Options{
 		OpenAPISpec:    api.Spec,
 		MetricsEnabled: cfg.Observability.Metrics.Enabled,
 		ServiceName:    "cms",
 	})
 	srv.Start()
-	slog.Info("cms started", "port", cfg.Server.CMSPort)
+	slog.Info("cms started", "addr", addr, "api_prefix", cms.APIPrefix)
 
 	<-ctx.Done()
-	slog.Info("shutting down")
+	slog.Info("shutting down", "service", "cms")
 	srv.Close()
 	repos.Close()
 	stopProfiling()
+	slog.Info("shutdown complete", "service", "cms")
 }

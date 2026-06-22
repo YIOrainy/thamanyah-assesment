@@ -3,6 +3,7 @@ package cms
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -34,7 +35,19 @@ func newService(shows store.ShowRepository, episodes store.EpisodeRepository, us
 }
 
 func (s *service) runImport(ctx context.Context, source, query string, actor uuid.UUID) (*ingestion.Result, error) {
-	return s.imports.Run(ctx, source, query, actor)
+	result, err := s.imports.Run(ctx, source, query, actor)
+	if err != nil {
+		return nil, err
+	}
+	slog.InfoContext(ctx, "cms import completed",
+		"source", source,
+		"actor", actor,
+		"shows_created", result.ShowsCreated,
+		"shows_updated", result.ShowsUpdated,
+		"episodes_created", result.EpisodesCreated,
+		"episodes_updated", result.EpisodesUpdated,
+	)
+	return result, nil
 }
 
 // login verifies credentials and issues a JWT. It returns errInvalidCredentials
@@ -42,12 +55,20 @@ func (s *service) runImport(ctx context.Context, source, query string, actor uui
 func (s *service) login(ctx context.Context, email, password string) (string, error) {
 	u, err := s.users.GetByEmail(ctx, email)
 	if err != nil {
+		slog.WarnContext(ctx, "cms login failed", "email", email, "reason", "user_not_found")
 		return "", errInvalidCredentials
 	}
 	if !auth.CheckPassword(u.PasswordHash, password) {
+		slog.WarnContext(ctx, "cms login failed", "email", email, "user_id", u.ID, "reason", "bad_password")
 		return "", errInvalidCredentials
 	}
-	return s.jwt.Issue(u.ID, u.Role, nil) // nil scope = role's full permission set
+	token, err := s.jwt.Issue(u.ID, u.Role, nil) // nil scope = role's full permission set
+	if err != nil {
+		slog.ErrorContext(ctx, "cms token issue failed", "email", email, "user_id", u.ID, "role", u.Role, "error", err)
+		return "", err
+	}
+	slog.InfoContext(ctx, "cms login succeeded", "email", email, "user_id", u.ID, "role", u.Role)
+	return token, nil
 }
 
 type createShowInput struct {
@@ -66,6 +87,13 @@ func (s *service) createShow(ctx context.Context, in createShowInput, actor uuid
 	if err := s.shows.Create(ctx, show); err != nil {
 		return nil, err
 	}
+	slog.InfoContext(ctx, "show created",
+		"show_id", show.ID,
+		"slug", show.Slug,
+		"format", show.Format,
+		"language", show.Language,
+		"actor", actor,
+	)
 	return show, nil
 }
 
@@ -101,6 +129,12 @@ func (s *service) updateShow(ctx context.Context, id uuid.UUID, in updateShowInp
 	if err := s.shows.Update(ctx, show); err != nil {
 		return nil, err
 	}
+	slog.InfoContext(ctx, "show updated",
+		"show_id", show.ID,
+		"slug", show.Slug,
+		"status", show.Status,
+		"actor", actor,
+	)
 	return show, nil
 }
 
@@ -115,6 +149,7 @@ func (s *service) publishShow(ctx context.Context, id, actor uuid.UUID) (*catalo
 	if err := s.shows.Update(ctx, show); err != nil {
 		return nil, err
 	}
+	slog.InfoContext(ctx, "show published", "show_id", show.ID, "slug", show.Slug, "actor", actor)
 	return show, nil
 }
 
@@ -157,6 +192,14 @@ func (s *service) createEpisode(ctx context.Context, showID uuid.UUID, in create
 	if err := s.episodes.Create(ctx, ep); err != nil {
 		return nil, err
 	}
+	slog.InfoContext(ctx, "episode created",
+		"episode_id", ep.ID,
+		"show_id", showID,
+		"slug", ep.Slug,
+		"episode_number", ep.EpisodeNumber,
+		"content_type", ep.ContentType,
+		"actor", actor,
+	)
 	return ep, nil
 }
 
@@ -193,5 +236,11 @@ func (s *service) publishEpisode(ctx context.Context, id, actor uuid.UUID) (*cat
 	if err := s.episodes.Update(ctx, ep); err != nil {
 		return nil, err
 	}
+	slog.InfoContext(ctx, "episode published",
+		"episode_id", ep.ID,
+		"show_id", ep.ShowID,
+		"slug", ep.Slug,
+		"actor", actor,
+	)
 	return ep, nil
 }

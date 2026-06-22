@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -26,15 +27,31 @@ type cursorResponse struct {
 	NextCursor string `json:"next_cursor,omitempty"`
 }
 
-func writeErr(w http.ResponseWriter, err error) {
+func discoveryError(err error) (int, string) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		server.Error(w, http.StatusNotFound, "not found")
+		return http.StatusNotFound, "not found"
 	case errors.Is(err, store.ErrInvalidCursor):
-		server.Error(w, http.StatusBadRequest, "invalid cursor")
+		return http.StatusBadRequest, "invalid cursor"
 	default:
-		server.Error(w, http.StatusInternalServerError, "internal error")
+		return http.StatusInternalServerError, "internal error"
 	}
+}
+
+func writeErr(w http.ResponseWriter, r *http.Request, err error) {
+	status, detail := discoveryError(err)
+	attrs := []any{
+		"status", status,
+		"method", r.Method,
+		"path", r.URL.Path,
+		"error", err,
+	}
+	if status >= http.StatusInternalServerError {
+		slog.ErrorContext(r.Context(), "discovery request failed", attrs...)
+	} else {
+		slog.WarnContext(r.Context(), "discovery request failed", attrs...)
+	}
+	server.Error(w, status, detail)
 }
 
 // resolveLimit reads ?limit= with a default and a hard cap.
@@ -58,7 +75,7 @@ func (h *handlers) handleSearch(w http.ResponseWriter, r *http.Request) {
 		Cursor:   q.Get("cursor"),
 	})
 	if err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 	server.JSON(w, http.StatusOK, cursorResponse{Items: eps, NextCursor: episodesCursor(eps, limit)})
@@ -74,7 +91,7 @@ func (h *handlers) handleBrowseShows(w http.ResponseWriter, r *http.Request) {
 		Cursor:   q.Get("cursor"),
 	})
 	if err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 	server.JSON(w, http.StatusOK, cursorResponse{Items: shows, NextCursor: showsCursor(shows, limit)})
@@ -83,7 +100,7 @@ func (h *handlers) handleBrowseShows(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) handleGetShow(w http.ResponseWriter, r *http.Request) {
 	show, err := h.svc.getShow(r.Context(), chi.URLParam(r, "slug"))
 	if err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 	server.JSON(w, http.StatusOK, show)
@@ -92,7 +109,7 @@ func (h *handlers) handleGetShow(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) handleShowEpisodes(w http.ResponseWriter, r *http.Request) {
 	eps, err := h.svc.listShowEpisodes(r.Context(), chi.URLParam(r, "slug"))
 	if err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 	server.JSON(w, http.StatusOK, cursorResponse{Items: eps})
@@ -101,7 +118,7 @@ func (h *handlers) handleShowEpisodes(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) handleGetEpisode(w http.ResponseWriter, r *http.Request) {
 	ep, err := h.svc.getEpisode(r.Context(), chi.URLParam(r, "slug"))
 	if err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 	server.JSON(w, http.StatusOK, ep)

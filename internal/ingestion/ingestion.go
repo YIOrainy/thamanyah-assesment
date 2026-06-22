@@ -3,6 +3,7 @@ package ingestion
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -65,18 +66,22 @@ func NewService(importers map[string]SourceImporter, shows store.ShowRepository,
 }
 
 func (s *Service) Run(ctx context.Context, source, query string, actor uuid.UUID) (*Result, error) {
+	slog.InfoContext(ctx, "import started", "source", source, "query", query, "actor", actor)
 	imp, ok := s.importers[source]
 	if !ok {
+		slog.WarnContext(ctx, "import rejected", "source", source, "reason", "unknown_source", "actor", actor)
 		return nil, ErrUnknownSource
 	}
 	data, err := imp.Import(ctx, query)
 	if err != nil {
+		slog.ErrorContext(ctx, "import source fetch failed", "source", source, "query", query, "actor", actor, "error", err)
 		return nil, err
 	}
 
 	res := &Result{}
 	showID, created, err := s.upsertShow(ctx, source, data, actor)
 	if err != nil {
+		slog.ErrorContext(ctx, "import show upsert failed", "source", source, "external_id", data.ExternalID, "actor", actor, "error", err)
 		return nil, err
 	}
 	if created {
@@ -88,6 +93,13 @@ func (s *Service) Run(ctx context.Context, source, query string, actor uuid.UUID
 	for _, ep := range data.Episodes {
 		created, err := s.upsertEpisode(ctx, source, showID, data.Language, ep, actor)
 		if err != nil {
+			slog.ErrorContext(ctx, "import episode upsert failed",
+				"source", source,
+				"show_id", showID,
+				"external_id", ep.ExternalID,
+				"actor", actor,
+				"error", err,
+			)
 			return nil, err
 		}
 		if created {
@@ -96,6 +108,15 @@ func (s *Service) Run(ctx context.Context, source, query string, actor uuid.UUID
 			res.EpisodesUpdated++
 		}
 	}
+	slog.InfoContext(ctx, "import finished",
+		"source", source,
+		"show_id", showID,
+		"actor", actor,
+		"shows_created", res.ShowsCreated,
+		"shows_updated", res.ShowsUpdated,
+		"episodes_created", res.EpisodesCreated,
+		"episodes_updated", res.EpisodesUpdated,
+	)
 	return res, nil
 }
 

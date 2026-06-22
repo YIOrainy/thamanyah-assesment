@@ -62,6 +62,7 @@ func New(addr string, app http.Handler, opts Options) *Server {
 		if opts.MetricsEnabled {
 			r.Use(metrics.Middleware(opts.ServiceName))
 		}
+		r.Use(requestLogger(opts.ServiceName))
 		r.Use(httprate.LimitByIP(rateLimitRequests, rateLimitWindow))
 		r.Use(middleware.Compress(5, "application/json", "application/problem+json", "text/plain"))
 		r.Mount("/", app)
@@ -73,6 +74,47 @@ func New(addr string, app http.Handler, opts Options) *Server {
 		ReadTimeout:  defaultReadTimeout,
 		WriteTimeout: defaultWriteTimeout,
 	}}
+}
+
+func requestLogger(service string) func(http.Handler) http.Handler {
+	if service == "" {
+		service = "http"
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+
+			next.ServeHTTP(ww, r)
+
+			status := ww.Status()
+			if status == 0 {
+				status = http.StatusOK
+			}
+			route := chi.RouteContext(r.Context()).RoutePattern()
+			if route == "" {
+				route = "unknown"
+			}
+			attrs := []any{
+				"service", service,
+				"method", r.Method,
+				"path", r.URL.Path,
+				"route", route,
+				"status", status,
+				"duration_ms", time.Since(start).Milliseconds(),
+				"request_id", middleware.GetReqID(r.Context()),
+				"remote_addr", r.RemoteAddr,
+			}
+			switch {
+			case status >= http.StatusInternalServerError:
+				slog.ErrorContext(r.Context(), "http request completed", attrs...)
+			case status >= http.StatusBadRequest:
+				slog.WarnContext(r.Context(), "http request completed", attrs...)
+			default:
+				slog.InfoContext(r.Context(), "http request completed", attrs...)
+			}
+		})
+	}
 }
 
 func (s *Server) Start() {

@@ -29,6 +29,13 @@ func main() {
 		os.Exit(1)
 	}
 	logging.Init(cfg.LogLevel)
+	slog.Info("config loaded",
+		"service", "discovery",
+		"path", *configPath,
+		"log_level", cfg.LogLevel,
+		"metrics_enabled", cfg.Observability.Metrics.Enabled,
+		"profiling_enabled", cfg.Observability.Profiling.Enabled,
+	)
 	stopProfiling := profiling.Start(cfg.Observability.Profiling, "thmanyah.discovery")
 
 	repos, err := store.New(cfg.Store)
@@ -40,18 +47,20 @@ func main() {
 	router := discovery.NewRouter(repos.Shows, repos.Episodes, repos.Searcher, c, cfg.Cache.Redis.TTL.Duration())
 
 	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
-	srv := server.New(net.JoinHostPort(cfg.Server.Host, cfg.Server.DiscoveryPort), router, server.Options{
+	addr := net.JoinHostPort(cfg.Server.Host, cfg.Server.DiscoveryPort)
+	srv := server.New(addr, router, server.Options{
 		OpenAPISpec:    api.Spec,
 		MetricsEnabled: cfg.Observability.Metrics.Enabled,
 		ServiceName:    "discovery",
 	})
 	srv.Start()
-	slog.Info("discovery started", "port", cfg.Server.DiscoveryPort)
+	slog.Info("discovery started", "addr", addr, "api_prefix", discovery.APIPrefix)
 
 	<-ctx.Done()
-	slog.Info("shutting down")
+	slog.Info("shutting down", "service", "discovery")
 	srv.Close()
 	closeCache()
 	repos.Close()
 	stopProfiling()
+	slog.Info("shutdown complete", "service", "discovery")
 }

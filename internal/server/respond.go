@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 )
 
@@ -27,6 +28,11 @@ func Error(w http.ResponseWriter, status int, detail string) {
 
 func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
+		slog.WarnContext(r.Context(), "decode json request failed",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"error", err,
+		)
 		Error(w, http.StatusBadRequest, "invalid JSON body")
 		return false
 	}

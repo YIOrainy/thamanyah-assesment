@@ -38,6 +38,19 @@ curl -XPOST localhost:8080/api/v1/imports -H "Authorization: Bearer $TOKEN" \
 curl 'localhost:8081/api/v1/search?q=finjan'
 ```
 
+### Import Thmanyah's فنجان feed
+
+The `$TOKEN` from the login above already has `imports:run`, so just call the import API with the real RSS feed:
+
+```bash
+curl -XPOST localhost:8080/api/v1/imports -H "Authorization: Bearer $TOKEN" \
+  -d '{"source":"rss","query":"https://files.hosting.thmanyah.com/podcasts/89/1713955813943-768/rss-feed.rss"}'
+# → {"shows_created":1,"episodes_created":364,...}   (re-run is idempotent → *_updated)
+
+# then read it back via Discovery (public)
+curl 'localhost:8081/api/v1/search?q=فنجان'
+```
+
 ## API docs
 
 Each service serves its OpenAPI spec and live Swagger UI:
@@ -94,3 +107,22 @@ Key constraints (in migrations, not visible above):
 - `episodes`: `UNIQUE(show_id, slug)` and `UNIQUE(show_id, episode_number)`.
 - `external_refs`: `UNIQUE(source, owner_type, external_id)` — the **idempotency key** for imports. The `owner` is polymorphic, so the links to `shows`/`episodes` are logical (no DB foreign key).
 - Search is Postgres FTS via the generated `episodes.search_tsv` (GIN), Arabic-normalized.
+
+### Roles & permissions (RBAC)
+
+Roles aren't separate tables — `cms_users.role` holds the role, and the role→permission
+matrix is **code-defined** (`internal/auth/permissions.go`). The JWT carries the role (and
+optional narrowing scopes); each CMS route requires a permission.
+
+| permission | admin | editor | viewer |
+|---|:---:|:---:|:---:|
+| `users:manage`     | ✓ |   |   |
+| `shows:read`       | ✓ | ✓ | ✓ |
+| `shows:write`      | ✓ | ✓ |   |
+| `shows:publish`    | ✓ | ✓ |   |
+| `episodes:read`    | ✓ | ✓ | ✓ |
+| `episodes:write`   | ✓ | ✓ |   |
+| `episodes:publish` | ✓ | ✓ |   |
+| `imports:run`      | ✓ | ✓ |   |
+
+Discovery is public (no auth).

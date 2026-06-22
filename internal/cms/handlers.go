@@ -2,6 +2,7 @@ package cms
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -30,21 +31,38 @@ func actor(r *http.Request) uuid.UUID {
 	return uuid.Nil
 }
 
-func writeErr(w http.ResponseWriter, err error) {
+func cmsError(err error) (int, string) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		server.Error(w, http.StatusNotFound, "not found")
+		return http.StatusNotFound, "not found"
 	case errors.Is(err, store.ErrConflict):
-		server.Error(w, http.StatusConflict, "already exists")
+		return http.StatusConflict, "already exists"
 	case errors.Is(err, errValidation):
-		server.Error(w, http.StatusBadRequest, "validation failed")
+		return http.StatusBadRequest, "validation failed"
 	case errors.Is(err, errInvalidCredentials):
-		server.Error(w, http.StatusUnauthorized, "invalid credentials")
+		return http.StatusUnauthorized, "invalid credentials"
 	case errors.Is(err, ingestion.ErrUnknownSource):
-		server.Error(w, http.StatusBadRequest, "unknown import source")
+		return http.StatusBadRequest, "unknown import source"
 	default:
-		server.Error(w, http.StatusInternalServerError, "internal error")
+		return http.StatusInternalServerError, "internal error"
 	}
+}
+
+func writeErr(w http.ResponseWriter, r *http.Request, err error) {
+	status, detail := cmsError(err)
+	attrs := []any{
+		"status", status,
+		"method", r.Method,
+		"path", r.URL.Path,
+		"actor", actor(r),
+		"error", err,
+	}
+	if status >= http.StatusInternalServerError {
+		slog.ErrorContext(r.Context(), "cms request failed", attrs...)
+	} else {
+		slog.WarnContext(r.Context(), "cms request failed", attrs...)
+	}
+	server.Error(w, status, detail)
 }
 
 func (h *handlers) handleRunImport(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +72,7 @@ func (h *handlers) handleRunImport(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.svc.runImport(r.Context(), req.Source, req.Query, actor(r))
 	if err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 	server.JSON(w, http.StatusOK, result)
@@ -67,7 +85,7 @@ func (h *handlers) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	token, err := h.svc.login(r.Context(), req.Email, req.Password)
 	if err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 	server.JSON(w, http.StatusOK, loginResponse{AccessToken: token})
@@ -93,9 +111,15 @@ func pageParams(r *http.Request) (page, pageSize int) {
 	return page, pageSize
 }
 
-func parseID(w http.ResponseWriter, raw string) (uuid.UUID, bool) {
+func parseID(w http.ResponseWriter, r *http.Request, raw string) (uuid.UUID, bool) {
 	id, err := uuid.Parse(raw)
 	if err != nil {
+		slog.WarnContext(r.Context(), "invalid path id",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"value", raw,
+			"error", err,
+		)
 		server.Error(w, http.StatusBadRequest, "invalid id")
 		return uuid.Nil, false
 	}
@@ -114,7 +138,7 @@ func (h *handlers) handleCreateShow(w http.ResponseWriter, r *http.Request) {
 		Format: catalog.Format(req.Format), Language: req.Language,
 	}, actor(r))
 	if err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 	server.JSON(w, http.StatusCreated, show)
@@ -130,27 +154,27 @@ func (h *handlers) handleListShows(w http.ResponseWriter, r *http.Request) {
 	page, pageSize := pageParams(r)
 	shows, total, err := h.svc.listShows(r.Context(), f, page, pageSize)
 	if err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 	server.JSON(w, http.StatusOK, pagedResponse{Items: shows, Page: page, PageSize: pageSize, Total: total})
 }
 
 func (h *handlers) handleGetShow(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseID(w, chi.URLParam(r, "showID"))
+	id, ok := parseID(w, r, chi.URLParam(r, "showID"))
 	if !ok {
 		return
 	}
 	show, err := h.svc.getShow(r.Context(), id)
 	if err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 	server.JSON(w, http.StatusOK, show)
 }
 
 func (h *handlers) handleUpdateShow(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseID(w, chi.URLParam(r, "showID"))
+	id, ok := parseID(w, r, chi.URLParam(r, "showID"))
 	if !ok {
 		return
 	}
@@ -165,20 +189,20 @@ func (h *handlers) handleUpdateShow(w http.ResponseWriter, r *http.Request) {
 	}
 	show, err := h.svc.updateShow(r.Context(), id, in, actor(r))
 	if err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 	server.JSON(w, http.StatusOK, show)
 }
 
 func (h *handlers) handlePublishShow(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseID(w, chi.URLParam(r, "showID"))
+	id, ok := parseID(w, r, chi.URLParam(r, "showID"))
 	if !ok {
 		return
 	}
 	show, err := h.svc.publishShow(r.Context(), id, actor(r))
 	if err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 	server.JSON(w, http.StatusOK, show)
@@ -187,7 +211,7 @@ func (h *handlers) handlePublishShow(w http.ResponseWriter, r *http.Request) {
 // --- episodes ---
 
 func (h *handlers) handleCreateEpisode(w http.ResponseWriter, r *http.Request) {
-	showID, ok := parseID(w, chi.URLParam(r, "showID"))
+	showID, ok := parseID(w, r, chi.URLParam(r, "showID"))
 	if !ok {
 		return
 	}
@@ -201,47 +225,47 @@ func (h *handlers) handleCreateEpisode(w http.ResponseWriter, r *http.Request) {
 		Language: req.Language, DurationSeconds: req.DurationSeconds,
 	}, actor(r))
 	if err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 	server.JSON(w, http.StatusCreated, ep)
 }
 
 func (h *handlers) handleListEpisodes(w http.ResponseWriter, r *http.Request) {
-	showID, ok := parseID(w, chi.URLParam(r, "showID"))
+	showID, ok := parseID(w, r, chi.URLParam(r, "showID"))
 	if !ok {
 		return
 	}
 	page, pageSize := pageParams(r)
 	eps, total, err := h.svc.listEpisodes(r.Context(), showID, page, pageSize)
 	if err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 	server.JSON(w, http.StatusOK, pagedResponse{Items: eps, Page: page, PageSize: pageSize, Total: total})
 }
 
 func (h *handlers) handleGetEpisode(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseID(w, chi.URLParam(r, "episodeID"))
+	id, ok := parseID(w, r, chi.URLParam(r, "episodeID"))
 	if !ok {
 		return
 	}
 	ep, err := h.svc.getEpisode(r.Context(), id)
 	if err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 	server.JSON(w, http.StatusOK, ep)
 }
 
 func (h *handlers) handlePublishEpisode(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseID(w, chi.URLParam(r, "episodeID"))
+	id, ok := parseID(w, r, chi.URLParam(r, "episodeID"))
 	if !ok {
 		return
 	}
 	ep, err := h.svc.publishEpisode(r.Context(), id, actor(r))
 	if err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 	server.JSON(w, http.StatusOK, ep)
