@@ -3,6 +3,7 @@ package cms
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,6 +61,22 @@ func TestRouterRejectsUnsupportedAPIVersions(t *testing.T) {
 				t.Fatalf("GET %s status = %d, want 404", path, rec.Code)
 			}
 		})
+	}
+}
+
+func TestRouterValidatesBody(t *testing.T) {
+	router, jwt := newTestRouter(t)
+	token, _ := jwt.Issue(uuid.Must(uuid.NewV7()), auth.RoleAdmin, nil)
+
+	// missing title (required) + invalid format (oneof) → 400 at the DTO boundary
+	body := strings.NewReader(`{"slug":"x","format":"bogus","language":"ar"}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, APIPrefix+"/shows", body)
+	req.Header.Set("Authorization", "Bearer "+token)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /shows invalid body status = %d, want 400", rec.Code)
 	}
 }
 

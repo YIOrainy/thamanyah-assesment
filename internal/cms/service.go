@@ -14,12 +14,7 @@ import (
 	"github.com/yazeedalorainy/thmanyah/internal/store"
 )
 
-var (
-	// errValidation is returned when input fails domain validation.
-	errValidation = errors.New("cms: validation failed")
-	// errInvalidCredentials is returned for any failed login (email or password).
-	errInvalidCredentials = errors.New("cms: invalid credentials")
-)
+var errInvalidCredentials = errors.New("cms: invalid credentials")
 
 // service holds the CMS write-side use cases over the catalog repositories.
 type service struct {
@@ -80,9 +75,6 @@ type createShowInput struct {
 }
 
 func (s *service) createShow(ctx context.Context, in createShowInput, actor uuid.UUID) (*catalog.Show, error) {
-	if in.Title == "" || in.Slug == "" || in.Language == "" || !in.Format.IsValid() {
-		return nil, errValidation
-	}
 	show := catalog.NewShow(in.Title, in.Slug, in.Description, in.Format, in.Language, actor)
 	if err := s.shows.Create(ctx, show); err != nil {
 		return nil, err
@@ -119,9 +111,6 @@ func (s *service) updateShow(ctx context.Context, id uuid.UUID, in updateShowInp
 		show.Language = *in.Language
 	}
 	if in.Format != nil {
-		if !in.Format.IsValid() {
-			return nil, errValidation
-		}
 		show.Format = *in.Format
 	}
 	show.UpdatedBy = actor
@@ -182,9 +171,6 @@ type createEpisodeInput struct {
 }
 
 func (s *service) createEpisode(ctx context.Context, showID uuid.UUID, in createEpisodeInput, actor uuid.UUID) (*catalog.Episode, error) {
-	if in.Title == "" || in.Slug == "" || in.Language == "" || !in.ContentType.IsValid() {
-		return nil, errValidation
-	}
 	if _, err := s.shows.GetByID(ctx, showID); err != nil {
 		return nil, err // ErrNotFound if the parent show is missing
 	}

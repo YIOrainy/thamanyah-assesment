@@ -227,6 +227,14 @@ components:
         title: { type: string, example: Not Found }
         status: { type: integer, example: 404 }
         detail: { type: string, example: not found }
+        errors:
+          type: array
+          description: present on 400 validation failures — one entry per invalid field
+          items:
+            type: object
+            properties:
+              field: { type: string, example: format }
+              message: { type: string, example: "must be one of: podcast documentary sports" }
 
     LoginRequest:
       type: object

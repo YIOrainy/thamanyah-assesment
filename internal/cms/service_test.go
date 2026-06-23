@@ -51,16 +51,6 @@ func TestService_CreatePublishShow(t *testing.T) {
 	}
 }
 
-func TestService_CreateShowValidation(t *testing.T) {
-	svc := newTestService(t)
-	_, err := svc.createShow(context.Background(), createShowInput{
-		Title: "x", Slug: "x", Format: "bogus", Language: "ar",
-	}, uuid.Must(uuid.NewV7()))
-	if !errors.Is(err, errValidation) {
-		t.Errorf("err = %v, want errValidation", err)
-	}
-}
-
 func TestService_ListEpisodesMissingShow(t *testing.T) {
 	svc := newTestService(t)
 	_, _, err := svc.listEpisodes(context.Background(), uuid.Must(uuid.NewV7()), 1, 20)

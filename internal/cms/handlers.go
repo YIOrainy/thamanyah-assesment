@@ -37,8 +37,6 @@ func cmsError(err error) (int, string) {
 		return http.StatusNotFound, "not found"
 	case errors.Is(err, store.ErrConflict):
 		return http.StatusConflict, "already exists"
-	case errors.Is(err, errValidation):
-		return http.StatusBadRequest, "validation failed"
 	case errors.Is(err, errInvalidCredentials):
 		return http.StatusUnauthorized, "invalid credentials"
 	case errors.Is(err, ingestion.ErrUnknownSource):
